@@ -39,7 +39,7 @@ export interface IMCoworkHandlerOptions {
   coworkStore: CoworkStore;
   imStore: IMStore;
   getSkillsPrompt?: () => Promise<string | null>;
-  timeout?: number; // Timeout in ms, default 120000 (2 minutes)
+  timeout?: number; // Timeout in ms, default 300000 (5 minutes) — first turn + tools can exceed 2 min
 }
 
 export class IMCoworkHandler extends EventEmitter {
@@ -63,7 +63,7 @@ export class IMCoworkHandler extends EventEmitter {
     this.coworkStore = options.coworkStore;
     this.imStore = options.imStore;
     this.getSkillsPrompt = options.getSkillsPrompt;
-    this.timeout = options.timeout ?? 120000;
+    this.timeout = options.timeout ?? 300000;
 
     this.setupEventListeners();
   }
@@ -168,6 +168,21 @@ export class IMCoworkHandler extends EventEmitter {
     }
 
     return responsePromise;
+  }
+
+  /**
+   * Clear the current session for an IM conversation (e.g. for /new command).
+   * Deletes mapping, stops runner session, and cleans up in-memory state.
+   */
+  clearSessionForConversation(imConversationId: string, platform: IMPlatform): void {
+    const existing = this.imStore.getSessionMapping(imConversationId, platform);
+    if (existing) {
+      this.imStore.deleteSessionMapping(imConversationId, platform);
+      this.imSessionIds.delete(existing.coworkSessionId);
+      this.sessionConversationMap.delete(existing.coworkSessionId);
+      this.clearPendingPermissionsBySessionId(existing.coworkSessionId);
+      this.coworkRunner.stopSession(existing.coworkSessionId);
+    }
   }
 
   /**
@@ -322,12 +337,15 @@ export class IMCoworkHandler extends EventEmitter {
         existingAccumulator.reject(new Error('Replaced by a newer IM request'));
       }
 
-      // Set up timeout
+      // Set up timeout (log when we start waiting so logs show where time is spent)
+      const timeoutSec = Math.round(this.timeout / 1000);
+      console.log(`[IMCoworkHandler] Waiting for Cowork response (timeout ${timeoutSec}s)`);
       const timeoutId = setTimeout(() => {
         const accumulator = this.messageAccumulators.get(sessionId);
         if (accumulator) {
           this.messageAccumulators.delete(sessionId);
           this.coworkRunner.stopSession(sessionId);
+          console.warn(`[IMCoworkHandler] Request timed out after ${timeoutSec}s`);
           reject(new Error('Request timed out'));
         }
       }, this.timeout);

@@ -201,6 +201,99 @@ export class IMGatewayManager extends EventEmitter {
   }
 
   /**
+   * Slash commands for IM (WeCom / DingTalk / Feishu / Telegram / Discord).
+   * Returns true if the message was a command and was handled.
+   */
+  private async handleSlashCommand(
+    message: IMMessage,
+    replyFn: (text: string) => Promise<void>
+  ): Promise<boolean> {
+    const raw = (message.content || '').trim();
+    const parts = raw.split(/\s+/).filter(Boolean);
+    const cmd = parts[0]?.toLowerCase();
+    if (!cmd || !['/new', '/resume', '/ls', '/help'].includes(cmd)) return false;
+
+    const { conversationId, platform } = message;
+
+    if (cmd === '/new') {
+      if (this.coworkHandler && this.coworkStore) {
+        const mapping = this.imStore.getSessionMapping(conversationId, platform);
+        if (mapping) {
+          const session = this.coworkStore.getSession(mapping.coworkSessionId);
+          this.imStore.addSessionToHistory(
+            conversationId,
+            platform,
+            mapping.coworkSessionId,
+            session?.title ?? mapping.coworkSessionId.slice(0, 8)
+          );
+        }
+        this.coworkHandler.clearSessionForConversation(conversationId, platform);
+      }
+      await replyFn('已开启新会话，下一条消息将开始新对话。');
+      return true;
+    }
+
+    if (cmd === '/ls') {
+      const list = this.imStore.listSessionHistory(conversationId, platform);
+      if (list.length === 0) {
+        await replyFn('暂无历史会话。使用 `/new` 开启新会话后，此处会列出可恢复的会话。');
+        return true;
+      }
+      const lines = list.map((e, i) => `${i + 1}. ${e.title}`).join('\n');
+      const current = this.imStore.getSessionMapping(conversationId, platform);
+      const currentHint = current
+        ? '\n当前会话将随下一条消息使用；使用 `/resume 序号` 可切换到上表中的某一会话。'
+        : '\n使用 `/resume 序号` 恢复某一会话。';
+      await replyFn(`**历史会话**\n${lines}${currentHint}`);
+      return true;
+    }
+
+    if (cmd === '/resume') {
+      const indexStr = parts[1];
+      if (indexStr === undefined || indexStr === '') {
+        await replyFn('当前将使用已有会话，直接发送消息即可继续。使用 `/ls` 查看历史，`/resume 序号` 恢复指定会话。');
+        return true;
+      }
+      const index = parseInt(indexStr, 10);
+      if (Number.isNaN(index) || index < 1) {
+        await replyFn('请使用 `/resume 序号`，例如 `/resume 1`。使用 `/ls` 查看历史会话列表。');
+        return true;
+      }
+      const list = this.imStore.listSessionHistory(conversationId, platform);
+      const entry = list[index - 1];
+      if (!entry) {
+        await replyFn(`序号 ${index} 无效，当前共 ${list.length} 条历史。请使用 \`/ls\` 查看列表。`);
+        return true;
+      }
+      if (this.coworkStore && !this.coworkStore.getSession(entry.coworkSessionId)) {
+        await replyFn(`会话「${entry.title}」已不存在，请选择其他序号或使用 \`/new\` 开启新会话。`);
+        return true;
+      }
+      if (this.coworkHandler) {
+        this.coworkHandler.clearSessionForConversation(conversationId, platform);
+      }
+      this.imStore.createSessionMapping(conversationId, platform, entry.coworkSessionId);
+      await replyFn(`已恢复到会话 #${index}：${entry.title}。下一条消息将在此会话中继续。`);
+      return true;
+    }
+
+    if (cmd === '/help') {
+      const helpText = [
+        '**命令说明**',
+        '- `/new` 开启新会话（当前会话会进入历史，下一条消息开始新对话）',
+        '- `/ls` 列出本对话的历史会话',
+        '- `/resume` 继续当前会话',
+        '- `/resume 序号` 恢复到历史会话（序号由 `/ls` 列出）',
+        '- `/help` 显示此帮助',
+      ].join('\n');
+      await replyFn(helpText);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Set up message handlers for both gateways
    */
   private setupMessageHandlers(): void {
@@ -209,6 +302,9 @@ export class IMGatewayManager extends EventEmitter {
       replyFn: (text: string) => Promise<void>
     ): Promise<void> => {
       try {
+        const handled = await this.handleSlashCommand(message, replyFn);
+        if (handled) return;
+
         let response: string;
 
         // Always use Cowork mode if handler is available

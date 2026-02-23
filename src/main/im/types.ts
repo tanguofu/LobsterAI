@@ -215,6 +215,14 @@ export interface IMSessionMapping {
   lastActiveAt: number;
 }
 
+export interface IMSessionHistoryEntry {
+  imConversationId: string;
+  platform: IMPlatform;
+  coworkSessionId: string;
+  title: string;
+  createdAt: number;
+}
+
 // ==================== IPC Result Types ====================
 
 export interface IMConfigResult {

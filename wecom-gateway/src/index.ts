@@ -61,14 +61,19 @@ app.use(express.text({ type: '*/*' }));
 app.get('/wecom/callback/:botId', (req: Request, res: Response) => {
   const botId = req.params.botId;
   const { msg_signature, timestamp, nonce, echostr } = req.query as Record<string, string>;
+  console.log('[WecomGateway] GET verify request, botId:', botId, 'hasClient:', !!wsClients.get(botId)?.size);
   if (!msg_signature || !timestamp || !nonce || !echostr) {
+    console.log('[WecomGateway] GET verify missing params');
     res.status(400).send('Missing msg_signature, timestamp, nonce or echostr');
     return;
   }
   const requestId = randomUUID();
   const promise = new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      if (pendingVerify.delete(requestId)) reject(new Error('Verify timeout'));
+      if (pendingVerify.delete(requestId)) {
+        console.log('[WecomGateway] GET verify timeout, requestId:', requestId);
+        reject(new Error('Verify timeout'));
+      }
     }, VERIFY_TIMEOUT_MS);
     pendingVerify.set(requestId, { resolve, reject, timeout });
   });
@@ -86,14 +91,17 @@ app.get('/wecom/callback/:botId', (req: Request, res: Response) => {
       clearTimeout(entry.timeout);
       pendingVerify.delete(requestId);
     }
+    console.log('[WecomGateway] GET verify 503, no client for botId:', botId, 'knownBotIds:', Array.from(wsClients.keys()));
     res.status(503).send('No LobsterAI client connected for this botId');
     return;
   }
   promise
     .then((plainEchostr) => {
+      console.log('[WecomGateway] GET verify OK, requestId:', requestId);
       res.type('text/plain').send(plainEchostr);
     })
     .catch((e) => {
+      console.log('[WecomGateway] GET verify failed, requestId:', requestId, 'error:', e?.message);
       res.status(500).send(e?.message || 'Verify failed');
     });
 });
@@ -149,16 +157,22 @@ wss.on('connection', (ws: import('ws').WebSocket, _req: import('http').IncomingM
     }
     if (payload.type === 'verifyResult' && payload.requestId) {
       const entry = pendingVerify.get(payload.requestId);
+      const err = (payload as { error?: string }).error;
       if (entry) {
         clearTimeout(entry.timeout);
         pendingVerify.delete(payload.requestId);
-        if ((payload as { error?: string }).error) {
-          entry.reject(new Error((payload as { error?: string }).error));
+        if (err) {
+          console.log('[WecomGateway] verifyResult error from client, requestId:', payload.requestId, 'error:', err);
+          entry.reject(new Error(err));
         } else if (payload.echostr != null) {
+          console.log('[WecomGateway] verifyResult OK, requestId:', payload.requestId);
           entry.resolve(payload.echostr);
         } else {
+          console.log('[WecomGateway] verifyResult missing echostr, requestId:', payload.requestId);
           entry.reject(new Error('Missing echostr in verifyResult'));
         }
+      } else {
+        console.log('[WecomGateway] verifyResult unknown requestId:', payload.requestId);
       }
       return;
     }

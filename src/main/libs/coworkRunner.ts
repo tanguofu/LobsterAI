@@ -2454,9 +2454,12 @@ export class CoworkRunner extends EventEmitter {
       },
     };
 
-    if (activeSession.claudeSessionId) {
-      options.resume = activeSession.claudeSessionId;
-    }
+    // Do NOT pass stored activeSession.claudeSessionId as options.resume here.
+    // This method starts a new local CLI process; any claudeSessionId in the store
+    // is from a previous process that has exited. Passing it causes the SDK to fail
+    // with "No conversation found with session ID". Clear it so we start a fresh
+    // conversation; the new process will emit its session_id via init and we persist that.
+    activeSession.claudeSessionId = null;
 
     if (systemPrompt) {
       options.systemPrompt = systemPrompt;

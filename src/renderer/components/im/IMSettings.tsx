@@ -577,15 +577,16 @@ const IMSettings: React.FC = () => {
                 EncodingAESKey
               </label>
               <input
-                type="password"
+                type="text"
                 value={config.wecom.encodingAesKey}
                 onChange={(e) => handleWecomChange('encodingAesKey', e.target.value)}
                 onBlur={handleSaveConfig}
-                className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
+                className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors font-mono"
                 placeholder="43 位 EncodingAESKey"
+                spellCheck={false}
               />
               <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
-                用于解密企业微信推送到 WecomGateway 的加密消息。
+                用于解密企业微信推送到 WecomGateway 的加密消息。明文显示便于与后台逐字核对（需与企业微信后台完全一致）。
               </p>
             </div>
 

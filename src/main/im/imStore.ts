@@ -14,6 +14,7 @@ import {
   IMSettings,
   IMPlatform,
   IMSessionMapping,
+  IMSessionHistoryEntry,
   DEFAULT_DINGTALK_CONFIG,
   DEFAULT_FEISHU_CONFIG,
   DEFAULT_TELEGRAM_CONFIG,
@@ -52,6 +53,21 @@ export class IMStore {
         last_active_at INTEGER NOT NULL,
         PRIMARY KEY (im_conversation_id, platform)
       );
+    `);
+
+    // IM session history: when user /new we push current session here; /ls lists, /resume N restores
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS im_session_history (
+        im_conversation_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        cowork_session_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_im_session_history_conv_platform
+      ON im_session_history (im_conversation_id, platform);
     `);
 
     this.saveDb();
@@ -361,6 +377,45 @@ export class IMStore {
       coworkSessionId: row[2] as string,
       createdAt: row[3] as number,
       lastActiveAt: row[4] as number,
+    }));
+  }
+
+  // ==================== Session History (for /ls and /resume N) ====================
+
+  addSessionToHistory(
+    imConversationId: string,
+    platform: IMPlatform,
+    coworkSessionId: string,
+    title: string
+  ): void {
+    const now = Date.now();
+    this.db.run(
+      'INSERT INTO im_session_history (im_conversation_id, platform, cowork_session_id, title, created_at) VALUES (?, ?, ?, ?, ?)',
+      [imConversationId, platform, coworkSessionId, title || coworkSessionId.slice(0, 8), now]
+    );
+    this.saveDb();
+  }
+
+  listSessionHistory(
+    imConversationId: string,
+    platform: IMPlatform,
+    limit: number = 20
+  ): IMSessionHistoryEntry[] {
+    const result = this.db.exec(
+      `SELECT im_conversation_id, platform, cowork_session_id, title, created_at
+       FROM im_session_history
+       WHERE im_conversation_id = ? AND platform = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [imConversationId, platform, limit]
+    );
+    if (!result[0]?.values) return [];
+    return result[0].values.map(row => ({
+      imConversationId: row[0] as string,
+      platform: row[1] as IMPlatform,
+      coworkSessionId: row[2] as string,
+      title: row[3] as string,
+      createdAt: row[4] as number,
     }));
   }
 }

@@ -2,7 +2,7 @@
 
 Standalone **relay** for 企业微信 · 消息推送（原群机器人）: it only forwards HTTP callbacks to LobsterAI over WebSocket. **All WeCom configuration (token, EncodingAESKey, webhook URL) is done in LobsterAI**; this service holds no bot config.
 
-Deploy the relay on a public HTTPS server. LobsterAI connects via WebSocket and performs verification, decryption, and reply (using its own webhook URL).
+Deploy the relay on a public HTTPS server. LobsterAI connects via WebSocket and performs verification, decryption, and reply (using its own webhook URL). LobsterAI uses the official WeCom Node.js crypto library [@wecom/crypto](https://www.npmjs.com/package/@wecom/crypto) as documented in [加解密库下载与返回码 - node库](https://developer.work.weixin.qq.com/document/path/90307#node%E5%BA%93).
 
 ## LobsterAI 企业微信消息交互顺序
 
@@ -92,3 +92,60 @@ npm start
 | GET `/wecom/callback/:botId` | WeCom URL verification; relay forwards to LobsterAI and returns decrypted echostr |
 | POST `/wecom/callback/:botId` | WeCom message callback; relay forwards body + query to LobsterAI |
 | WS `/ws/:botId` | LobsterAI client; receives `verify` / `callback`; may send `send` with `webhookUrl` for optional proxy |
+
+## Troubleshooting
+
+### 企业微信「echostr 设置失败」/ URL 校验不通过
+
+**可能原因与对应处理**：
+
+| 现象 / 日志 | 原因 | 处理 |
+|-------------|------|------|
+| 网关日志：`GET verify 503, no client for botId: xxx` | 当前没有 LobsterAI 用该 botId 连上网关，或 **botId 与回调 URL 路径不一致** | ① 先打开 LobsterAI，在 IM 里开启并连接企业微信（确保网关日志里出现 `WS client connected, botId: xxx`）。② 企业微信后台「接收消息」里填的**回调 URL** 必须为 `https://你的域名/wecom/callback/你的Token`，其中 **「你的Token」** 与 LobsterAI 里配置的 **Token** 完全一致（例如 LobsterAI 用 Token `lobsteraiter1`，则 URL 为 `.../wecom/callback/lobsteraiter1`）。 |
+| 网关日志：`GET verify timeout` | LobsterAI 在 15 秒内未回传解密后的 echostr | 检查 LobsterAI 里 **Token**、**EncodingAESKey** 是否与企业微信后台一致；EncodingAESKey 为 43 位。若不一致，解密会失败或超时。 |
+| 网关日志：`verifyResult error from client` | LobsterAI 验签或解密失败（Token/EncodingAESKey 错误） | 在企业微信后台与 LobsterAI 中核对 **Token**、**EncodingAESKey** 完全一致（含大小写、无多余空格）。 |
+| 企业微信后台提示校验失败且网关无 GET 请求日志 | 请求未到达网关（域名解析、防火墙、反向代理未转发） | 确认回调 URL 的域名解析到本网关所在服务器；若前有 Nginx，确认 `GET /wecom/callback/...` 已转发到网关端口（如 3000）。 |
+
+**建议**：在企业微信后台点击「保存」前，先确保 LobsterAI 已连接网关（界面显示企业微信已连接），再保存；保存后查看服务器上 `wecom-gateway.log`（或控制台）中的 `[WecomGateway] GET verify ...` 日志以确认是 503、timeout 还是 verifyResult error。
+
+**根据网关日志快速判断**（在服务器执行 `tail -50 wecom-gateway.log`）：
+
+- 出现 `GET verify request, botId: xxx hasClient: false` 且 `knownBotIds: []` → 当时**没有任何 LobsterAI 连接**：请先在 LobsterAI 里连接企业微信，再在企业微信后台点保存。
+- 出现 `GET verify request, botId: xxx hasClient: false` 且 `knownBotIds: [yyy]` → **URL 里的 botId 与 LobsterAI 使用的 Token 不一致**：企业微信「接收消息」里填的 URL 必须为 `https://域名/wecom/callback/你的Token`，其中「你的Token」与 LobsterAI 中配置的 Token 完全一致（例如 LobsterAI 用 `lobsteraiter1`，则路径为 `/wecom/callback/lobsteraiter1`）。
+- 出现 `verifyResult error from client ... Invalid signature` → 企业微信后台的 **Token** 与 LobsterAI 中配置的 Token 不一致，请完全一致（含大小写、无空格）。
+- 出现 `verifyResult error from client ... Decrypt failed` 或 `EncodingAESKey` 相关错误 → 企业微信后台的 **EncodingAESKey** 与 LobsterAI 中配置的不一致；EncodingAESKey 为 **43 位**，请逐字核对。
+- 出现 `GET verify timeout` → LobsterAI 在 15 秒内未返回结果，多为 Token/EncodingAESKey 错误导致解密失败或未响应。
+
+### LobsterAI 报错：`EPROTO` / `WRONG_VERSION_NUMBER` / `SSL routines`
+
+**原因**：网关当前是**明文 HTTP/WS**（未配置 TLS），但 LobsterAI 里填的是 `https://` 或 `wss://`，客户端按 TLS 握手，服务端返回明文，导致 SSL 错误。
+
+**处理**：
+
+- **方案一（推荐）**：在 LobsterAI「WecomGateway 地址」中改为 **`http://` 开头**，并带上端口，例如  
+  `http://9.134.80.122:3000`  
+  这样会使用 `ws://` 连接，与当前明文网关一致。
+- **方案二**：在服务器上为 wecom-gateway 配置 HTTPS（如用 Nginx 反向代理并配置 SSL），对外提供 `https://`，LobsterAI 再使用 `https://你的域名`（会转为 `wss://`）。
+
+### LobsterAI 卡住 / 消息无回复 / 日志出现 "Request timed out"
+
+**现象**：企业微信里发了消息，LobsterAI 无回复；或主进程日志里出现 `[IMGatewayManager] Error processing message: Request timed out`。
+
+**原因**：不是整个应用卡死，而是 **IM 消息处理**在等 Cowork（Claude）会话在限定时间内完成。若 Cowork 在超时时间内没有返回（例如首轮加载 SDK、调用技能或 LLM 较慢），就会报 "Request timed out"（默认 5 分钟）。
+
+**LobsterAI 主进程日志位置**（用于排查）：
+
+- **macOS**: `~/Library/Logs/LobsterAI/main.log`
+- **Windows**: `%USERPROFILE%\AppData\Roaming\LobsterAI\logs\main.log`
+- **Linux**: `~/.config/LobsterAI/logs/main.log`
+
+**日志中可关注**：
+
+- `[WeCom Gateway] Verify OK` → URL 校验成功。
+- `[IMGatewayManager] Using Cowork mode for message processing` → 收到消息，进入 Cowork 处理。
+- `[IMCoworkHandler] 处理消息:` → 具体会话与内容。
+- `[IMCoworkHandler] Waiting for Cowork response (timeout Xs)` → 开始等待回复，X 为超时秒数。
+- `[IMCoworkHandler] 会话完成:` → Cowork 正常结束并回复。
+- `[IMCoworkHandler] Request timed out after Xs` / `[IMGatewayManager] Error processing message: Request timed out` → 等待超时。
+
+**建议**：若经常超时，可检查网络与 API 延迟、或是否首轮/技能执行过慢；当前默认超时为 5 分钟，一般足够首轮+简单工具调用。

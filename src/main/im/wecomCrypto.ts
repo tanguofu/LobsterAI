@@ -1,36 +1,41 @@
 /**
- * WeCom callback signature verification and message decryption.
- * See: https://developer.work.weixin.qq.com/document/path/90930
+ * WeCom callback signature verification and message decryption
+ * using the official Node.js library @wecom/crypto.
+ *
+ * Official docs:
+ * - 加解密库下载与返回码 (Node 库): https://developer.work.weixin.qq.com/document/path/90307#node%E5%BA%93
+ * - 加解密方案说明: https://developer.work.weixin.qq.com/document/path/91144
+ * - 回调和回复的加解密方案: https://developer.work.weixin.qq.com/document/path/101033
+ *
+ * Install: npm install @wecom/crypto  (or yarn add @wecom/crypto)
+ *
+ * GET URL 校验：msg_signature = SHA1(sort(token, timestamp, nonce, echostr))，需包含 echostr。
+ * POST 回调：msg_signature = SHA1(sort(token, timestamp, nonce, encrypt))，包含加密消息体。
  */
 
-import * as crypto from 'crypto';
+import { getSignature, decrypt as wecomDecrypt } from '@wecom/crypto';
 
+/**
+ * Verify WeCom request signature.
+ * For GET verify: ciphered = echostr; for POST callback: ciphered = encrypted body (or <Encrypt> value).
+ */
 export function verifySignature(
   token: string,
   timestamp: string,
   nonce: string,
-  msgSignature: string
+  msgSignature: string,
+  ciphered: string
 ): boolean {
-  const arr = [token, timestamp, nonce].sort();
-  const str = arr.join('');
-  const sha1 = crypto.createHash('sha1').update(str).digest('hex');
-  return sha1 === msgSignature;
+  const expected = getSignature(token, timestamp, nonce, ciphered);
+  const received = (msgSignature ?? '').trim();
+  return expected.toLowerCase() === received.toLowerCase();
 }
 
 /**
- * Decrypt WeCom encrypted message (POST body or echostr).
- * AES-256-CBC; key = base64(encodingAesKey); IV = first 16 bytes of key.
+ * Decrypt WeCom encrypted payload (echostr or POST body).
+ * Returns the plain message (echostr string or XML).
  */
 export function decrypt(encodingAesKey: string, encryptedBase64: string): string {
-  const key = Buffer.from(encodingAesKey + '=', 'base64');
-  if (key.length !== 32) {
-    throw new Error('EncodingAESKey must decode to 32 bytes');
-  }
-  const iv = key.subarray(0, 16);
-  const cipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-  cipher.setAutoPadding(true);
-  const encrypted = Buffer.from(encryptedBase64, 'base64');
-  const decrypted = Buffer.concat([cipher.update(encrypted), cipher.final()]);
-  const msgLen = decrypted.readUInt32BE(16);
-  return decrypted.subarray(20, 20 + msgLen).toString('utf8');
+  const { message } = wecomDecrypt(encodingAesKey, encryptedBase64);
+  return message;
 }

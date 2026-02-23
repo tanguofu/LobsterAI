@@ -3,12 +3,16 @@
  * - Connects to remote WecomGateway relay (config lives only in LobsterAI).
  * - Receives "verify" / "callback" from relay; verifies and decrypts locally; replies via webhook or verifyResult.
  * - Sends messages via WS with webhookUrl so relay can proxy, or via direct webhook.
+ * - Replies are split into chunks (markdown when possible, paragraphs; tables/lists kept whole) and pushed
+ *   sequentially so the user receives content in time (goal: response within 1 min).
+ * @see https://developer.work.weixin.qq.com/document/path/100285 应用推送
  */
 
 import { EventEmitter } from 'events';
 import { WecomConfig, WecomGatewayStatus, IMMessage } from './types';
 import { verifySignature, decrypt } from './wecomCrypto';
 import { extractEncryptFromBody, parseCallbackXml } from './wecomCallbackParse';
+import { splitReplyForWecom } from './wecomMessageSplitter';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const WebSocket = require('ws');
 
@@ -131,8 +135,14 @@ export class WecomGateway extends EventEmitter {
       });
 
       ws.on('error', (error: any) => {
-        console.error('[WeCom Gateway] WebSocket error:', error?.message || error);
-        this.status.lastError = error?.message || String(error);
+        const msg = error?.message || String(error);
+        console.error('[WeCom Gateway] WebSocket error:', msg);
+        const isSslMismatch =
+          /EPROTO|WRONG_VERSION_NUMBER|SSL/i.test(msg) ||
+          (msg.includes('100000f7') && msg.includes('SSL'));
+        this.status.lastError = isSslMismatch
+          ? `${msg}（若网关未配置 HTTPS，请将「WecomGateway 地址」改为 http:// 开头，例如 http://服务器:3000）`
+          : msg;
         this.emit('error', error);
         if (!settled) {
           settled = true;
@@ -185,14 +195,18 @@ export class WecomGateway extends EventEmitter {
   private handleVerify(payload: { requestId: string; msg_signature: string; timestamp: string; nonce: string; echostr: string }): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.config) return;
     const { requestId, msg_signature, timestamp, nonce, echostr } = payload;
+    console.log('[WeCom Gateway] Verify request received, requestId:', requestId);
     try {
-      if (!verifySignature(this.config.token, timestamp, nonce, msg_signature)) {
+      if (!verifySignature(this.config.token, timestamp, nonce, msg_signature, echostr)) {
+        console.warn('[WeCom Gateway] Verify failed: Invalid signature (token/timestamp/nonce/echostr mismatch)');
         this.ws.send(JSON.stringify({ type: 'verifyResult', requestId, error: 'Invalid signature' }));
         return;
       }
       const plain = decrypt(this.config.encodingAesKey, echostr);
+      console.log('[WeCom Gateway] Verify OK: signature valid, echostr decrypted');
       this.ws.send(JSON.stringify({ type: 'verifyResult', requestId, echostr: plain }));
     } catch (e: any) {
+      console.error('[WeCom Gateway] Verify failed: decrypt error:', e?.message || e);
       this.ws.send(JSON.stringify({ type: 'verifyResult', requestId, error: e?.message || 'Decrypt failed' }));
     }
   }
@@ -203,9 +217,9 @@ export class WecomGateway extends EventEmitter {
     const { msg_signature, timestamp, nonce } = query;
     if (!msg_signature || !timestamp || !nonce) return;
     try {
-      if (!verifySignature(this.config.token, timestamp, nonce, msg_signature)) return;
       const encrypt = extractEncryptFromBody(body);
       if (!encrypt) return;
+      if (!verifySignature(this.config.token, timestamp, nonce, msg_signature, encrypt)) return;
       const xmlPlain = decrypt(this.config.encodingAesKey, encrypt);
       const msg = parseCallbackXml(xmlPlain);
       if (!msg) return;
@@ -232,24 +246,69 @@ export class WecomGateway extends EventEmitter {
     }
   }
 
+  /**
+   * Send reply via WeCom webhook (应用推送).
+   * Uses markdown_v2 when content contains tables (per API 100285); else markdown; else text.
+   * markdown_v2: content 必填，最长 4096 字节 UTF-8；不支持字体颜色、@群成员；低版本客户端显示纯文本。
+   * 注：chatid/visible_to_user 为「应用发送消息到群聊」接口参数，webhook 推送不需要。
+   */
   private async sendReply(text: string): Promise<void> {
     if (!this.config?.webhookUrl) {
       console.warn('[WeCom Gateway] No webhookUrl configured, cannot send reply');
       return;
     }
-    try {
-      const body = JSON.stringify({ msgtype: 'text', text: { content: text } });
-      const resp = await fetch(this.config.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-      });
-      if (!resp.ok) {
-        console.error('[WeCom Gateway] Webhook send failed:', resp.status, await resp.text());
+    const MARKDOWN_V2_MAX_BYTES = 4096;
+    const chunks = splitReplyForWecom(text);
+    if (chunks.length === 0) return;
+    for (let i = 0; i < chunks.length; i++) {
+      try {
+        const { content, useMarkdown, useMarkdownV2 } = chunks[i];
+        let body: string;
+        if (useMarkdownV2) {
+          const contentBytes = Buffer.byteLength(content, 'utf8');
+          let safeContent: string;
+          if (contentBytes <= MARKDOWN_V2_MAX_BYTES) {
+            safeContent = content;
+          } else {
+            const buf = Buffer.from(content, 'utf8');
+            let end = MARKDOWN_V2_MAX_BYTES;
+            while (end > 0 && (buf[end - 1] & 0xc0) === 0x80) end--;
+            safeContent = buf.subarray(0, end).toString('utf8');
+          }
+          body = JSON.stringify({ msgtype: 'markdown_v2', markdown_v2: { content: safeContent } });
+        } else if (useMarkdown) {
+          body = JSON.stringify({ msgtype: 'markdown', markdown: { content } });
+        } else {
+          body = JSON.stringify({ msgtype: 'text', text: { content } });
+        }
+        let resp = await fetch(this.config.webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        if (!resp.ok) {
+          const errText = await resp.text();
+          if (useMarkdownV2 && resp.status >= 400) {
+            await new Promise((r) => setTimeout(r, 200));
+            const fallbackResp = await fetch(this.config.webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ msgtype: 'markdown', markdown: { content } }),
+            });
+            if (!fallbackResp.ok) {
+              console.error('[WeCom Gateway] Webhook send failed (markdown fallback):', fallbackResp.status, await fallbackResp.text());
+            }
+          } else {
+            console.error('[WeCom Gateway] Webhook send failed:', resp.status, errText);
+          }
+        }
+        this.status.lastOutboundAt = Date.now();
+        if (i < chunks.length - 1) {
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      } catch (e: any) {
+        console.error('[WeCom Gateway] Webhook send error:', e?.message || e);
       }
-      this.status.lastOutboundAt = Date.now();
-    } catch (e: any) {
-      console.error('[WeCom Gateway] Webhook send error:', e?.message || e);
     }
   }
 

@@ -84,5 +84,6 @@
     "node_modules/@img/**",
     "node_modules/sql.js/dist/**"
   ],
-  "asar": true
+  "asar": true,
+  "publish": null
 }

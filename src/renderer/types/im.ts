@@ -82,15 +82,36 @@ export interface DiscordGatewayStatus {
   lastOutboundAt: number | null;
 }
 
+// ==================== WeCom Types ====================
+
+export interface WecomConfig {
+  enabled: boolean;
+  webhookUrl: string;
+  token: string;
+  encodingAesKey: string;
+  gatewayUrl: string;
+  debug?: boolean;
+}
+
+export interface WecomGatewayStatus {
+  connected: boolean;
+  startedAt: number | null;
+  lastError: string | null;
+  lastInboundAt: number | null;
+  lastOutboundAt: number | null;
+  callbackUrl?: string | null;
+}
+
 // ==================== Common IM Types ====================
 
-export type IMPlatform = 'dingtalk' | 'feishu' | 'telegram' | 'discord';
+export type IMPlatform = 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom';
 
 export interface IMGatewayConfig {
   dingtalk: DingTalkConfig;
   feishu: FeishuConfig;
   telegram: TelegramConfig;
   discord: DiscordConfig;
+  wecom: WecomConfig;
   settings: IMSettings;
 }
 
@@ -104,6 +125,7 @@ export interface IMGatewayStatus {
   feishu: FeishuGatewayStatus;
   telegram: TelegramGatewayStatus;
   discord: DiscordGatewayStatus;
+  wecom: WecomGatewayStatus;
 }
 
 // ==================== Media Attachment Types ====================
@@ -234,6 +256,14 @@ export const DEFAULT_IM_CONFIG: IMGatewayConfig = {
   feishu: DEFAULT_FEISHU_CONFIG,
   telegram: DEFAULT_TELEGRAM_CONFIG,
   discord: DEFAULT_DISCORD_CONFIG,
+  wecom: {
+    enabled: false,
+    webhookUrl: '',
+    token: '',
+    encodingAesKey: '',
+    gatewayUrl: '',
+    debug: true,
+  },
   settings: DEFAULT_IM_SETTINGS,
 };
 
@@ -269,5 +299,13 @@ export const DEFAULT_IM_STATUS: IMGatewayStatus = {
     botUsername: null,
     lastInboundAt: null,
     lastOutboundAt: null,
+  },
+  wecom: {
+    connected: false,
+    startedAt: null,
+    lastError: null,
+    lastInboundAt: null,
+    lastOutboundAt: null,
+    callbackUrl: null,
   },
 };

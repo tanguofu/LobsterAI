@@ -8,7 +8,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { SignalIcon, XMarkIcon, CheckCircleIcon, XCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { RootState } from '../../store';
 import { imService } from '../../services/im';
-import { setDingTalkConfig, setFeishuConfig, setTelegramConfig, setDiscordConfig, clearError } from '../../store/slices/imSlice';
+import { setDingTalkConfig, setFeishuConfig, setTelegramConfig, setDiscordConfig, setWecomConfig, clearError } from '../../store/slices/imSlice';
 import { i18nService } from '../../services/i18n';
 import type { IMPlatform, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig } from '../../types/im';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
@@ -19,6 +19,7 @@ const platformMeta: Record<IMPlatform, { label: string; logo: string }> = {
   feishu: { label: '飞书', logo: 'feishu.png' },
   telegram: { label: 'Telegram', logo: 'telegram.svg' },
   discord: { label: 'Discord', logo: 'discord.svg' },
+  wecom: { label: '企业微信', logo: 'wecom.png' },
 };
 
 const verdictColorClass: Record<IMConnectivityTestResult['verdict'], string> = {
@@ -79,6 +80,14 @@ const IMSettings: React.FC = () => {
     dispatch(setDiscordConfig({ [field]: value }));
   };
 
+  // Handle WeCom config change
+  const handleWecomChange = (
+    field: 'webhookUrl' | 'token' | 'encodingAesKey' | 'gatewayUrl',
+    value: string
+  ) => {
+    dispatch(setWecomConfig({ [field]: value }));
+  };
+
   // Save config on blur
   const handleSaveConfig = async () => {
     await imService.updateConfig(config);
@@ -133,21 +142,26 @@ const IMSettings: React.FC = () => {
       feishu: setFeishuConfig,
       telegram: setTelegramConfig,
       discord: setDiscordConfig,
+      wecom: setWecomConfig,
     }[platform];
 
     // Update Redux state
-    dispatch(setConfigAction({ enabled: newEnabled }));
+    if (setConfigAction) {
+      dispatch(setConfigAction({ enabled: newEnabled } as any));
+    }
 
     // Persist the updated config (construct manually since Redux state hasn't re-rendered yet)
-    await imService.updateConfig({ [platform]: { ...config[platform], enabled: newEnabled } });
+    await imService.updateConfig({ [platform]: { ...config[platform], enabled: newEnabled } as any });
 
     if (newEnabled) {
       dispatch(clearError());
       const success = await imService.startGateway(platform);
       if (!success) {
         // Rollback enabled state on failure
-        dispatch(setConfigAction({ enabled: false }));
-        await imService.updateConfig({ [platform]: { ...config[platform], enabled: false } });
+        if (setConfigAction) {
+          dispatch(setConfigAction({ enabled: false } as any));
+        }
+        await imService.updateConfig({ [platform]: { ...config[platform], enabled: false } as any });
       } else {
         await runConnectivityTest(platform, {
           [platform]: { ...config[platform], enabled: true },
@@ -162,6 +176,7 @@ const IMSettings: React.FC = () => {
   const feishuConnected = status.feishu.connected;
   const telegramConnected = status.telegram.connected;
   const discordConnected = status.discord.connected;
+  const wecomConnected = status.wecom.connected;
 
   // Compute visible platforms based on language
   const platforms = useMemo<IMPlatform[]>(() => {
@@ -187,6 +202,10 @@ const IMSettings: React.FC = () => {
     if (platform === 'discord') {
       return !!config.discord.botToken;
     }
+    if (platform === 'wecom') {
+      // WeCom 网关：至少需要 gatewayUrl 和 token
+      return !!(config.wecom.gatewayUrl && config.wecom.token);
+    }
     return !!(config.feishu.appId && config.feishu.appSecret);
   };
 
@@ -200,6 +219,7 @@ const IMSettings: React.FC = () => {
     if (platform === 'dingtalk') return dingtalkConnected;
     if (platform === 'telegram') return telegramConnected;
     if (platform === 'discord') return discordConnected;
+    if (platform === 'wecom') return wecomConnected;
     return feishuConnected;
   };
 
@@ -513,6 +533,88 @@ const IMSettings: React.FC = () => {
             {status.discord.lastError && (
               <div className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
                 {status.discord.lastError}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* WeCom Settings */}
+        {activePlatform === 'wecom' && (
+          <div className="space-y-3">
+            {/* Webhook URL */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                Webhook URL（群机器人发送地址）
+              </label>
+              <input
+                type="text"
+                value={config.wecom.webhookUrl}
+                onChange={(e) => handleWecomChange('webhookUrl', e.target.value)}
+                onBlur={handleSaveConfig}
+                className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
+                placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+              />
+            </div>
+
+            {/* Token */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                Token（同时作为回调 Token 与 botId）
+              </label>
+              <input
+                type="text"
+                value={config.wecom.token}
+                onChange={(e) => handleWecomChange('token', e.target.value)}
+                onBlur={handleSaveConfig}
+                className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
+                placeholder="企业微信机器人配置中的 Token"
+              />
+            </div>
+
+            {/* EncodingAESKey */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                EncodingAESKey
+              </label>
+              <input
+                type="password"
+                value={config.wecom.encodingAesKey}
+                onChange={(e) => handleWecomChange('encodingAesKey', e.target.value)}
+                onBlur={handleSaveConfig}
+                className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
+                placeholder="43 位 EncodingAESKey"
+              />
+              <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
+                用于解密企业微信推送到 WecomGateway 的加密消息。
+              </p>
+            </div>
+
+            {/* WecomGateway 地址 */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                WecomGateway 地址（WebSocket 基础地址）
+              </label>
+              <input
+                type="text"
+                value={config.wecom.gatewayUrl}
+                onChange={(e) => handleWecomChange('gatewayUrl', e.target.value)}
+                onBlur={handleSaveConfig}
+                className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
+                placeholder="wss://your-wecom-gateway-host"
+              />
+              <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
+                LobsterAI 将使用此地址建立 WebSocket 连接（实际路径为 /ws/{'{'}token{'}'}），与远端 WecomGateway 中转服务通信。
+              </p>
+            </div>
+
+            <div className="pt-1">
+              {renderConnectivityTestButton('wecom')}
+            </div>
+
+            {/* Error display */}
+            {status.wecom.lastError && (
+              <div className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
+                {status.wecom.lastError}
               </div>
             )}
           </div>

@@ -170,7 +170,7 @@ export class BridgeServer {
     });
 
     // CORS for localhost only
-    this.app.use((req, res, next) => {
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
       res.header('Access-Control-Allow-Origin', 'http://127.0.0.1:*');
       res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE');
       res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -178,7 +178,7 @@ export class BridgeServer {
     });
 
     // Request logging
-    this.app.use((req, res, next) => {
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
       console.log(`[API] ${req.method} ${req.path}`);
       next();
     });
@@ -623,7 +623,7 @@ export class BridgeServer {
       const server = this.app.listen(this.config.server.port, this.config.server.host);
       this.httpServer = server;
 
-      server.once('error', (error) => {
+      server.once('error', (error: Error) => {
         this.httpServer = null;
         reject(error);
       });

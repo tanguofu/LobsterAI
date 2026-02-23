@@ -9,6 +9,7 @@ import { DingTalkGateway } from './dingtalkGateway';
 import { FeishuGateway } from './feishuGateway';
 import { TelegramGateway } from './telegramGateway';
 import { DiscordGateway } from './discordGateway';
+import { WecomGateway } from './wecomGateway';
 import { IMChatHandler } from './imChatHandler';
 import { IMCoworkHandler } from './imCoworkHandler';
 import { IMStore } from './imStore';
@@ -39,6 +40,7 @@ export class IMGatewayManager extends EventEmitter {
   private feishuGateway: FeishuGateway;
   private telegramGateway: TelegramGateway;
   private discordGateway: DiscordGateway;
+  private wecomGateway: WecomGateway;
   private imStore: IMStore;
   private chatHandler: IMChatHandler | null = null;
   private coworkHandler: IMCoworkHandler | null = null;
@@ -57,6 +59,7 @@ export class IMGatewayManager extends EventEmitter {
     this.feishuGateway = new FeishuGateway();
     this.telegramGateway = new TelegramGateway();
     this.discordGateway = new DiscordGateway();
+    this.wecomGateway = new WecomGateway();
 
     // Store Cowork dependencies if provided
     if (options?.coworkRunner && options?.coworkStore) {
@@ -134,6 +137,21 @@ export class IMGatewayManager extends EventEmitter {
     this.discordGateway.on('message', (message: IMMessage) => {
       this.emit('message', message);
     });
+
+    // WeCom events
+    this.wecomGateway.on('connected', () => {
+      this.emit('statusChange', this.getStatus());
+    });
+    this.wecomGateway.on('disconnected', () => {
+      this.emit('statusChange', this.getStatus());
+    });
+    this.wecomGateway.on('error', (error) => {
+      this.emit('error', { platform: 'wecom', error });
+      this.emit('statusChange', this.getStatus());
+    });
+    this.wecomGateway.on('message', (message: IMMessage) => {
+      this.emit('message', message);
+    });
   }
 
   /**
@@ -161,6 +179,10 @@ export class IMGatewayManager extends EventEmitter {
     if (this.discordGateway && !this.discordGateway.isConnected()) {
       console.log('[IMGatewayManager] Reconnecting Discord...');
       this.discordGateway.reconnectIfNeeded();
+    }
+    if (this.wecomGateway && !this.wecomGateway.isConnected()) {
+      console.log('[IMGatewayManager] Reconnecting WeCom...');
+      this.wecomGateway.reconnectIfNeeded();
     }
   }
 
@@ -222,6 +244,7 @@ export class IMGatewayManager extends EventEmitter {
     this.feishuGateway.setMessageCallback(messageHandler);
     this.telegramGateway.setMessageCallback(messageHandler);
     this.discordGateway.setMessageCallback(messageHandler);
+    this.wecomGateway.setMessageCallback(messageHandler);
   }
 
   /**
@@ -294,6 +317,7 @@ export class IMGatewayManager extends EventEmitter {
       feishu: this.feishuGateway.getStatus(),
       telegram: this.telegramGateway.getStatus(),
       discord: this.discordGateway.getStatus(),
+      wecom: this.wecomGateway.getStatus(),
     };
   }
 
@@ -505,6 +529,8 @@ export class IMGatewayManager extends EventEmitter {
       await this.telegramGateway.start(config.telegram);
     } else if (platform === 'discord') {
       await this.discordGateway.start(config.discord);
+    } else if (platform === 'wecom') {
+      await this.wecomGateway.start(config.wecom);
     }
   }
 
@@ -520,6 +546,8 @@ export class IMGatewayManager extends EventEmitter {
       await this.telegramGateway.stop();
     } else if (platform === 'discord') {
       await this.discordGateway.stop();
+    } else if (platform === 'wecom') {
+      await this.wecomGateway.stop();
     }
   }
 
@@ -560,6 +588,13 @@ export class IMGatewayManager extends EventEmitter {
         console.error(`[IMGatewayManager] Failed to start Discord: ${error.message}`);
       }
     }
+    if (config.wecom.enabled && config.wecom.gatewayUrl && config.wecom.token) {
+      try {
+        await this.startGateway('wecom');
+      } catch (error: any) {
+        console.error(`[IMGatewayManager] Failed to start WeCom: ${error.message}`);
+      }
+    }
   }
 
   /**
@@ -571,6 +606,7 @@ export class IMGatewayManager extends EventEmitter {
       this.feishuGateway.stop(),
       this.telegramGateway.stop(),
       this.discordGateway.stop(),
+      this.wecomGateway.stop(),
     ]);
   }
 
@@ -578,7 +614,13 @@ export class IMGatewayManager extends EventEmitter {
    * Check if any gateway is connected
    */
   isAnyConnected(): boolean {
-    return this.dingtalkGateway.isConnected() || this.feishuGateway.isConnected() || this.telegramGateway.isConnected() || this.discordGateway.isConnected();
+    return (
+      this.dingtalkGateway.isConnected() ||
+      this.feishuGateway.isConnected() ||
+      this.telegramGateway.isConnected() ||
+      this.discordGateway.isConnected() ||
+      this.wecomGateway.isConnected()
+    );
   }
 
   /**
@@ -593,6 +635,9 @@ export class IMGatewayManager extends EventEmitter {
     }
     if (platform === 'discord') {
       return this.discordGateway.isConnected();
+    }
+    if (platform === 'wecom') {
+      return this.wecomGateway.isConnected();
     }
     return this.feishuGateway.isConnected();
   }
@@ -617,6 +662,8 @@ export class IMGatewayManager extends EventEmitter {
         await this.telegramGateway.sendNotification(text);
       } else if (platform === 'discord') {
         await this.discordGateway.sendNotification(text);
+      } else if (platform === 'wecom') {
+        await this.wecomGateway.sendNotification(text);
       }
       return true;
     } catch (error: any) {
@@ -637,6 +684,7 @@ export class IMGatewayManager extends EventEmitter {
       feishu: { ...current.feishu, ...(configOverride.feishu || {}) },
       telegram: { ...current.telegram, ...(configOverride.telegram || {}) },
       discord: { ...current.discord, ...(configOverride.discord || {}) },
+      wecom: { ...current.wecom, ...(configOverride.wecom || {}) },
       settings: { ...current.settings, ...(configOverride.settings || {}) },
     };
   }
@@ -657,7 +705,16 @@ export class IMGatewayManager extends EventEmitter {
     if (platform === 'telegram') {
       return config.telegram.botToken ? [] : ['botToken'];
     }
-    return config.discord.botToken ? [] : ['botToken'];
+    if (platform === 'discord') {
+      return config.discord.botToken ? [] : ['botToken'];
+    }
+    if (platform === 'wecom') {
+      const fields: string[] = [];
+      if (!config.wecom.gatewayUrl) fields.push('gatewayUrl');
+      if (!config.wecom.token) fields.push('token');
+      return fields;
+    }
+    return [];
   }
 
   private async runAuthProbe(platform: IMPlatform, config: IMGatewayConfig): Promise<string> {
@@ -699,14 +756,25 @@ export class IMGatewayManager extends EventEmitter {
       return `Telegram 鉴权通过（Bot: ${username}）。`;
     }
 
-    const response = await axios.get('https://discord.com/api/v10/users/@me', {
-      timeout: CONNECTIVITY_TIMEOUT_MS,
-      headers: {
-        Authorization: `Bot ${config.discord.botToken}`,
-      },
-    });
-    const username = response.data?.username ? `${response.data.username}#${response.data.discriminator || '0000'}` : 'unknown';
-    return `Discord 鉴权通过（Bot: ${username}）。`;
+    if (platform === 'discord') {
+      const response = await axios.get('https://discord.com/api/v10/users/@me', {
+        timeout: CONNECTIVITY_TIMEOUT_MS,
+        headers: {
+          Authorization: `Bot ${config.discord.botToken}`,
+        },
+      });
+      const username = response.data?.username ? `${response.data.username}#${response.data.discriminator || '0000'}` : 'unknown';
+      return `Discord 鉴权通过（Bot: ${username}）。`;
+    }
+
+    if (platform === 'wecom') {
+      if (config.wecom.gatewayUrl && config.wecom.token) {
+        return 'WeCom 已配置（网关 + Token），连接后由 LobsterAI 完成校验与解密。';
+      }
+      throw new Error('WeCom 请先配置 gatewayUrl 与 token。');
+    }
+
+    throw new Error(`Unsupported platform for auth probe: ${platform}`);
   }
 
   private resolveFeishuDomain(domain: string, Lark: any): any {
@@ -733,28 +801,36 @@ export class IMGatewayManager extends EventEmitter {
     }
     if (platform === 'dingtalk') return status.dingtalk.startedAt;
     if (platform === 'telegram') return status.telegram.startedAt;
-    return status.discord.startedAt;
+    if (platform === 'discord') return status.discord.startedAt;
+    if (platform === 'wecom') return status.wecom.startedAt;
+    return null;
   }
 
   private getLastInboundAt(platform: IMPlatform, status: IMGatewayStatus): number | null {
     if (platform === 'dingtalk') return status.dingtalk.lastInboundAt;
     if (platform === 'feishu') return status.feishu.lastInboundAt;
     if (platform === 'telegram') return status.telegram.lastInboundAt;
-    return status.discord.lastInboundAt;
+    if (platform === 'discord') return status.discord.lastInboundAt;
+    if (platform === 'wecom') return status.wecom.lastInboundAt;
+    return null;
   }
 
   private getLastOutboundAt(platform: IMPlatform, status: IMGatewayStatus): number | null {
     if (platform === 'dingtalk') return status.dingtalk.lastOutboundAt;
     if (platform === 'feishu') return status.feishu.lastOutboundAt;
     if (platform === 'telegram') return status.telegram.lastOutboundAt;
-    return status.discord.lastOutboundAt;
+    if (platform === 'discord') return status.discord.lastOutboundAt;
+    if (platform === 'wecom') return status.wecom.lastOutboundAt;
+    return null;
   }
 
   private getLastError(platform: IMPlatform, status: IMGatewayStatus): string | null {
     if (platform === 'dingtalk') return status.dingtalk.lastError;
     if (platform === 'feishu') return status.feishu.error;
     if (platform === 'telegram') return status.telegram.lastError;
-    return status.discord.lastError;
+    if (platform === 'discord') return status.discord.lastError;
+    if (platform === 'wecom') return status.wecom.lastError;
+    return null;
   }
 
   private calculateVerdict(checks: IMConnectivityCheck[]): IMConnectivityVerdict {

@@ -303,10 +303,10 @@ interface IElectronAPI {
   im: {
     getConfig: () => Promise<{ success: boolean; config?: IMGatewayConfig; error?: string }>;
     setConfig: (config: Partial<IMGatewayConfig>) => Promise<{ success: boolean; error?: string }>;
-    startGateway: (platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord') => Promise<{ success: boolean; error?: string }>;
-    stopGateway: (platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord') => Promise<{ success: boolean; error?: string }>;
+    startGateway: (platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom') => Promise<{ success: boolean; error?: string }>;
+    stopGateway: (platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom') => Promise<{ success: boolean; error?: string }>;
     testGateway: (
-      platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord',
+      platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom',
       configOverride?: Partial<IMGatewayConfig>
     ) => Promise<{ success: boolean; result?: IMConnectivityTestResult; error?: string }>;
     getStatus: () => Promise<{ success: boolean; status?: IMGatewayStatus; error?: string }>;
@@ -343,6 +343,7 @@ interface IMGatewayConfig {
   feishu: FeishuConfig;
   telegram: TelegramConfig;
   discord: DiscordConfig;
+  wecom: WecomConfig;
   settings: IMSettings;
 }
 
@@ -381,6 +382,15 @@ interface DiscordConfig {
   debug?: boolean;
 }
 
+interface WecomConfig {
+  enabled: boolean;
+  webhookUrl: string;
+  token: string;
+  encodingAesKey: string;
+  gatewayUrl: string;
+  debug?: boolean;
+}
+
 interface IMSettings {
   systemPrompt?: string;
   skillsEnabled: boolean;
@@ -391,6 +401,7 @@ interface IMGatewayStatus {
   feishu: FeishuGatewayStatus;
   telegram: TelegramGatewayStatus;
   discord: DiscordGatewayStatus;
+  wecom: WecomGatewayStatus;
 }
 
 type IMConnectivityVerdict = 'pass' | 'warn' | 'fail';
@@ -418,7 +429,7 @@ interface IMConnectivityCheck {
 }
 
 interface IMConnectivityTestResult {
-  platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord';
+  platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom';
   testedAt: number;
   verdict: IMConnectivityVerdict;
   checks: IMConnectivityCheck[];
@@ -460,8 +471,17 @@ interface DiscordGatewayStatus {
   lastOutboundAt: number | null;
 }
 
+interface WecomGatewayStatus {
+  connected: boolean;
+  startedAt: number | null;
+  lastError: string | null;
+  lastInboundAt: number | null;
+  lastOutboundAt: number | null;
+  callbackUrl?: string | null;
+}
+
 interface IMMessage {
-  platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord';
+  platform: 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom';
   messageId: string;
   conversationId: string;
   senderId: string;

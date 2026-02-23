@@ -65,7 +65,7 @@ export class BingSearch {
 
       // Extract search results using page.evaluate
       // Note: Code inside evaluate runs in browser context
-      const results = await page.evaluate((max) => {
+      const results = await page.evaluate((max: number) => {
         const items = document.querySelectorAll('li.b_algo');
         const extractedResults: Array<{
           title: string;

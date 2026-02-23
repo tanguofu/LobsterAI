@@ -109,7 +109,7 @@ export class PlaywrightManager {
     }
 
     // Check for existing pages in the context
-    const contextPages = conn.context.pages().filter(page => !page.isClosed());
+    const contextPages = conn.context.pages().filter((page: Page) => !page.isClosed());
 
     if (contextPages.length === 0) {
       console.log(`[Playwright] No existing pages, creating new page`);
@@ -187,7 +187,7 @@ export class PlaywrightManager {
     return Array.from(this.connections.values()).map(conn => ({
       id: conn.id,
       connectedAt: conn.connectedAt,
-      pageCount: conn.context.pages().filter(page => !page.isClosed()).length
+      pageCount: conn.context.pages().filter((page: Page) => !page.isClosed()).length
     }));
   }
 

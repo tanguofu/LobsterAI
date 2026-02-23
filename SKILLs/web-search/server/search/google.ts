@@ -57,7 +57,7 @@ export class GoogleSearch {
         throw new Error('Google search results did not load in time');
       }
 
-      const results = await page.evaluate((max) => {
+      const results = await page.evaluate((max: number) => {
         const parseGoogleUrl = (rawUrl: string): string => {
           if (!rawUrl) {
             return '';

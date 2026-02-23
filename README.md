@@ -248,6 +248,7 @@ LobsterAI can bridge the Agent to multiple IM platforms. Send a message from you
 | Feishu (Lark) | Lark SDK | Feishu app bot |
 | Telegram | grammY | Bot API integration |
 | Discord | discord.js | Discord bot integration |
+| 企业微信 (WeCom) | 群机器人 + WecomGateway 中继 | 需单独部署 [wecom-gateway](wecom-gateway/README.md)；校验、解密与回复均在 LobsterAI 内完成，中继仅转发。消息交互顺序见 [wecom-gateway 说明](wecom-gateway/README.md#lobsterai-企业微信消息交互顺序) |
 
 Configure the corresponding platform Token/Secret in the Settings panel to enable. Once set up, you can send instructions directly to the Agent from your phone IM (e.g., "analyze this dataset", "make a weekly summary PPT"), and the Agent will execute on the desktop and return results.
 

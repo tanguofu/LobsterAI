@@ -115,15 +115,41 @@ export interface DiscordGatewayStatus {
   lastOutboundAt: number | null;
 }
 
+// ==================== WeCom Types ====================
+
+export interface WecomConfig {
+  enabled: boolean;
+  // 企业微信群机器人发送 Webhook URL
+  webhookUrl: string;
+  // 企业微信群机器人 Token（同时作为 botId 和回调签名 token）
+  token: string;
+  // 企业微信群机器人 EncodingAESKey，用于解密回调消息
+  encodingAesKey: string;
+  // 远端 WecomGateway 服务地址（用于 WebSocket 连接），例如 wss://host/wecom
+  gatewayUrl: string;
+  debug?: boolean;
+}
+
+export interface WecomGatewayStatus {
+  connected: boolean;
+  startedAt: number | null;
+  lastError: string | null;
+  lastInboundAt: number | null;
+  lastOutboundAt: number | null;
+  // 可选：展示当前回调 URL 或群 webhook 是否可用
+  callbackUrl?: string | null;
+}
+
 // ==================== Common IM Types ====================
 
-export type IMPlatform = 'dingtalk' | 'feishu' | 'telegram' | 'discord';
+export type IMPlatform = 'dingtalk' | 'feishu' | 'telegram' | 'discord' | 'wecom';
 
 export interface IMGatewayConfig {
   dingtalk: DingTalkConfig;
   feishu: FeishuConfig;
   telegram: TelegramConfig;
   discord: DiscordConfig;
+  wecom: WecomConfig;
   settings: IMSettings;
 }
 
@@ -137,6 +163,7 @@ export interface IMGatewayStatus {
   feishu: FeishuGatewayStatus;
   telegram: TelegramGatewayStatus;
   discord: DiscordGatewayStatus;
+  wecom: WecomGatewayStatus;
 }
 
 // ==================== Media Attachment Types ====================
@@ -277,6 +304,15 @@ export const DEFAULT_DISCORD_CONFIG: DiscordConfig = {
   debug: true,
 };
 
+export const DEFAULT_WECOM_CONFIG: WecomConfig = {
+  enabled: false,
+  webhookUrl: '',
+  token: '',
+  encodingAesKey: '',
+  gatewayUrl: '',
+  debug: true,
+};
+
 export const DEFAULT_IM_SETTINGS: IMSettings = {
   systemPrompt: '',
   skillsEnabled: true,
@@ -287,6 +323,7 @@ export const DEFAULT_IM_CONFIG: IMGatewayConfig = {
   feishu: DEFAULT_FEISHU_CONFIG,
   telegram: DEFAULT_TELEGRAM_CONFIG,
   discord: DEFAULT_DISCORD_CONFIG,
+  wecom: DEFAULT_WECOM_CONFIG,
   settings: DEFAULT_IM_SETTINGS,
 };
 
@@ -331,6 +368,14 @@ export const DEFAULT_IM_STATUS: IMGatewayStatus = {
   feishu: DEFAULT_FEISHU_STATUS,
   telegram: DEFAULT_TELEGRAM_STATUS,
   discord: DEFAULT_DISCORD_STATUS,
+  wecom: {
+    connected: false,
+    startedAt: null,
+    lastError: null,
+    lastInboundAt: null,
+    lastOutboundAt: null,
+    callbackUrl: null,
+  },
 };
 
 // ==================== DingTalk Media Types ====================

@@ -10,6 +10,7 @@ import {
   FeishuConfig,
   TelegramConfig,
   DiscordConfig,
+  WecomConfig,
   IMSettings,
   IMPlatform,
   IMSessionMapping,
@@ -17,6 +18,7 @@ import {
   DEFAULT_FEISHU_CONFIG,
   DEFAULT_TELEGRAM_CONFIG,
   DEFAULT_DISCORD_CONFIG,
+  DEFAULT_WECOM_CONFIG,
   DEFAULT_IM_SETTINGS,
 } from './types';
 
@@ -59,7 +61,7 @@ export class IMStore {
    * Migrate existing IM configs to ensure stable defaults.
    */
   private migrateDefaults(): void {
-    const platforms = ['dingtalk', 'feishu', 'telegram', 'discord'] as const;
+    const platforms = ['dingtalk', 'feishu', 'telegram', 'discord', 'wecom'] as const;
     let changed = false;
 
     for (const platform of platforms) {
@@ -140,6 +142,7 @@ export class IMStore {
     const feishu = this.getConfigValue<FeishuConfig>('feishu') ?? DEFAULT_FEISHU_CONFIG;
     const telegram = this.getConfigValue<TelegramConfig>('telegram') ?? DEFAULT_TELEGRAM_CONFIG;
     const discord = this.getConfigValue<DiscordConfig>('discord') ?? DEFAULT_DISCORD_CONFIG;
+    const wecom = this.getConfigValue<WecomConfig>('wecom') ?? DEFAULT_WECOM_CONFIG;
     const settings = this.getConfigValue<IMSettings>('settings') ?? DEFAULT_IM_SETTINGS;
 
     // Resolve enabled field: default to false for safety
@@ -158,6 +161,7 @@ export class IMStore {
       feishu: resolveEnabled(feishu, DEFAULT_FEISHU_CONFIG),
       telegram: resolveEnabled(telegram, DEFAULT_TELEGRAM_CONFIG),
       discord: resolveEnabled(discord, DEFAULT_DISCORD_CONFIG),
+      wecom: resolveEnabled(wecom, DEFAULT_WECOM_CONFIG),
       settings: { ...DEFAULT_IM_SETTINGS, ...settings },
     };
   }
@@ -174,6 +178,9 @@ export class IMStore {
     }
     if (config.discord) {
       this.setDiscordConfig(config.discord);
+    }
+    if (config.wecom) {
+      this.setWecomConfig(config.wecom);
     }
     if (config.settings) {
       this.setIMSettings(config.settings);
@@ -228,6 +235,18 @@ export class IMStore {
     this.setConfigValue('discord', { ...current, ...config });
   }
 
+  // ==================== WeCom Config ====================
+
+  getWecomConfig(): WecomConfig {
+    const stored = this.getConfigValue<WecomConfig>('wecom');
+    return { ...DEFAULT_WECOM_CONFIG, ...stored };
+  }
+
+  setWecomConfig(config: Partial<WecomConfig>): void {
+    const current = this.getWecomConfig();
+    this.setConfigValue('wecom', { ...current, ...config });
+  }
+
   // ==================== IM Settings ====================
 
   getIMSettings(): IMSettings {
@@ -259,7 +278,8 @@ export class IMStore {
     const hasFeishu = !!(config.feishu.appId && config.feishu.appSecret);
     const hasTelegram = !!config.telegram.botToken;
     const hasDiscord = !!config.discord.botToken;
-    return hasDingTalk || hasFeishu || hasTelegram || hasDiscord;
+    const hasWecom = !!(config.wecom.gatewayUrl && config.wecom.token);
+    return hasDingTalk || hasFeishu || hasTelegram || hasDiscord || hasWecom;
   }
 
   // ==================== Session Mapping Operations ====================
